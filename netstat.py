@@ -6,24 +6,9 @@ A netstat -nlp[t|u] python script
 
 import os
 import sys
-import math
 import re
 import glob
 import argparse
-
-
-HEX = {'F': 15, 'E': 14, 'D': 13, 'C': 12, 'B': 11, 'A': 10,
-       '9': 9, '8': 8, '7': 7, '6': 6, '5': 5, '4': 4,
-       '3': 3, '2': 2, '1': 1, '0': 0}
-
-
-def _hex2dec(hex):
-    ''' Return decimal of hex '''
-    dec = 0
-    for h in range(0, len(hex)):
-        tmp = int(HEX[hex[h]] * math.pow(16, len(hex) - h - 1))
-        dec += tmp
-    return dec
 
 
 def _ip(hex):
@@ -32,15 +17,8 @@ def _ip(hex):
     ip_hex = [hex[i:i+2] for i in range(0, len(hex), 2)][::-1]
     ip_dec = []
     for iph in ip_hex:
-        tmp = int(HEX[iph[0]] * math.pow(16, 1) +
-                  HEX[iph[1]] * math.pow(16, 0))
-        ip_dec.append(str(tmp))
+        ip_dec.append(str(int(iph, 16)))
     return '.'.join(ip_dec)
-
-
-def _port(hex):
-    ''' Return port from hex '''
-    return _hex2dec(hex)
 
 
 def _owner(uid):
@@ -66,7 +44,7 @@ def _state(state):
             11: 'CLOSING',
             12: 'NEW_SYN_RECV'
             }
-    return STAT[_hex2dec(state)]
+    return STAT[int(state, 16)]
 
 
 def _cmdline(inode):
@@ -115,14 +93,14 @@ def netstat(pro):
             if pro == 'tcp':
                 print "{}\t{}\t{}:{}\t{}:{}\t{}\t{}\t{}".format(
                     _owner(l['uid']), pro, _ip(l['laddr']),
-                    _port(l['lport']), _ip(l['raddr']),
-                    _port(l['rport']), _state(l['state']),
+                    int(l['lport'], 16), _ip(l['raddr']),
+                    int(l['rport'], 16), _state(l['state']),
                     p[0], p[1])
             else:
                 print "{}\t{}\t{}:{}\t{}:{}\t{}\t{}\t{}".format(
                     _owner(l['uid']), pro, _ip(l['laddr']),
-                    _port(l['lport']), _ip(l['raddr']),
-                    _port(l['rport']), '',
+                    int(l['lport'], 16), _ip(l['raddr']),
+                    int(l['rport'], 16), '',
                     p[0], p[1])
 
 
