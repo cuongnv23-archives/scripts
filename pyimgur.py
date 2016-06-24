@@ -14,80 +14,84 @@ AUTH_HEADER = {"Authorization": "Client-ID " + CLIENT_ID}
 HTTP_SUCCESS_CODE = [200, 201]
 
 
-def imgur_conn_error(err):
-    ''' Handle error of connecting to imgur.com '''
-    print "Error while contacting with imgur.com!"
-    print "{}".format(err)
+def error(message, err=None):
+    ''' Return error message '''
+    print "{}".format(message)
+    if err:
+        print "More detail: {}".format(err)
     sys.exit(1)
 
 
-def imgur_http_error(err):
-    ''' Handle HTTP error response from imgur.com '''
-    print "HTTP return code: {}".format(err)
-    sys.exit(1)
+def check_file(images):
+    ''' Check if input is file and accessible '''
+    for image in images:
+        if not os.path.isfile(image):
+            error("{} is not a file".format(image))
+        elif not os.access(image, os.R_OK):
+            error("{} is not accessible".format(image))
+        else:
+            continue
 
 
-def upload_image(img, in_album=False):
-    ''' Return uploaded data info in dictionary '''
+def read_file(path):
+    ''' Read image and return file object '''
     try:
-        with open(img, 'rb') as f:
-            payload = {
-                'key': CLIENT_SECRET,
-                'image': f.read()
-            }
-        req = requests.post(IMG_UPLOAD_API, data=payload, headers=AUTH_HEADER)
-        if req.status_code in HTTP_SUCCESS_CODE:
+        with open(path, 'rb') as f:
+            return f.read()
+    except IOError as e:
+        error("Unable to read {}".format(path), e)
+    except:
+        raise
+
+
+def create_album():
+    ''' Create album and return api endpoint and album id '''
+    album_obj = requests.post(ALBUM_CREATION_API, headers=AUTH_HEADER)
+    if album_obj.status_code in HTTP_SUCCESS_CODE:
+        album_json = json.loads(album_obj.text)
+        deletehash = album_json.get('data').get('deletehash')
+        album_id = album_json.get('data').get('id')
+    album_add_api = 'https://api.imgur.com/3/album/' + deletehash + '/add'
+    return album_add_api, album_id
+
+
+def update_album(img_ids):
+    ''' Add image id into album '''
+    api_endpoint, album_id = create_album()
+    payload = {'ids': '%s' % ','.join(img_ids)}
+    req = requests.put(api_endpoint,
+                       data=payload,
+                       headers=AUTH_HEADER)
+    if req.status_code in HTTP_SUCCESS_CODE:
+        return album_id
+    else:
+        return False
+
+
+def upload(images):
+    ''' Update one or many images and return url'''
+    img_ids = []
+    for image in images:
+        payload = {'key': CLIENT_SECRET,
+                   'image': read_file(image)}
+        try:
+            req = requests.post(IMG_UPLOAD_API,
+                                data=payload,
+                                headers=AUTH_HEADER)
+            if req.status_code not in HTTP_SUCCESS_CODE:
+                error("Unexpected response: {}".format(req.status_code))
             req_json = json.loads(req.text)
-            if not in_album:
-                return req_json['data']['link']
-            else:
-                return req_json
-        else:
-            print "Upload image failed!"
-            imgur_http_error(req.status_code)
-    except requests.RequestException as e:
-        imgur_conn_error(e)
-    except IOError:
-        print "Unable to open {}".format(img)
-        sys.exit(1)
-    except:
-        raise
-
-
-def upload_album(imgs):
-    ''' Upload multiple files into one album, return album url '''
-    try:
-        # Create album first
-        create_album = requests.post(ALBUM_CREATION_API, headers=AUTH_HEADER)
-        if create_album.status_code in HTTP_SUCCESS_CODE:
-            album_json = json.loads(create_album.text)
-            deletehash = album_json['data']['deletehash']
-            album_id = album_json['data']['id']
-            album_add_api = 'https://api.imgur.com/3/album/' + deletehash + \
-                '/add'
-            img_ids = []
-            for img in imgs:
-                img_data = upload_image(img, in_album=True)
-                img_ids.append(str(img_data['data']['id']))
-            payload = {
-                'ids': '%s' % ','.join(img_ids)
-            }
-        else:
-            print "Album creation failed!"
-            imgur_http_error(create_album.status_code)
-        # Update images to album and return album url
-        update_album = requests.put(album_add_api,
-                                    data=payload,
-                                    headers=AUTH_HEADER)
-        if update_album.status_code in HTTP_SUCCESS_CODE:
-            return 'https://imgur.com/a/' + album_id
-        else:
-            print "Updating images to album failed!"
-            imgur_http_error(update_album.status_code)
-    except requests.RequestException as e:
-        imgur_conn_error(e)
-    except:
-        raise
+            img_ids.append(req_json.get('data').get('id'))
+        except requests.RequestException as e:
+            error("Error when connecting to imgur.com", e)
+        except:
+            raise
+    if len(images) > 1:
+        album_id = update_album(img_ids)
+        url = 'https://imgur.com/a/' + album_id
+    else:
+        url = req_json.get('data').get('link')
+    return url
 
 
 def main():
@@ -100,13 +104,14 @@ $ export IMGUR_CLIENT_ID='your_client_id'
 $ export IMGUR_CLIENT_SECRET='your_secret_key'
         """
         sys.exit(1)
-    if len(sys.argv) >= 3:
-        print upload_album(sys.argv[1:])
-    elif len(sys.argv) == 2:
-        print upload_image(sys.argv[1])
-    else:
-        print "Usage: python pyimgur.py /path/to/images"
-        sys.exit(1)
+    try:
+        check_file(sys.argv[1:])
+        if len(sys.argv) >= 2:
+            print upload(sys.argv[1:])
+        else:
+            error("Usage: python pyimgur.py /path/to/images")
+    except KeyboardInterrupt:
+        error("OK, quit")
 
 if __name__ == '__main__':
     main()
